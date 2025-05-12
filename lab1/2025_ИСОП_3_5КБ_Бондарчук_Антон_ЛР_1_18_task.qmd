@@ -1,0 +1,211 @@
+---
+jupyter: python3
+---
+
+```{python}
+import numpy as np
+import matplotlib.pyplot as plt
+
+########## Library #############
+import contextlib
+
+@contextlib.contextmanager
+def printoptions(*args, **kwargs):
+    original = np.get_printoptions()
+    np.set_printoptions(*args, **kwargs)
+    try:
+        yield
+    finally: 
+        np.set_printoptions(**original)
+########## Library #############
+```
+
+Упражнение 18.1 (СЛАУ)
+
+```{python}
+n = 3  
+A = np.random.randint(-10, 10, size=(n, n)) 
+b = np.random.randint(-10, 10, size=(n,))  
+
+if np.linalg.det(A) == 0:
+    raise ValueError("Матрица вырожденная")
+
+x = np.linalg.solve(A, b)
+
+residual = np.linalg.norm(A @ x - b)
+
+with printoptions(precision=3, suppress=True):
+    print("Матрица коэффициентов:\n", A)
+    print("\nВектор свободных членов:\n", b)
+    print("\nРешение системы:\n", x)
+    print("\nНорма невязки:", residual)
+```
+
+Упражнение 18.2 (Ого, формулки!)
+
+```{python}
+n = 3
+np.random.seed(42)
+
+A = np.random.rand(n, n)
+B = np.random.rand(n, n)
+
+def check_properties(A, B, tol=1e-6):
+    results = {}
+    
+    # 1. (A + B)^T = A^T + B^T
+    results[1] = np.allclose((A + B).T, A.T + B.T, rtol=tol, atol=tol)
+    
+    # 2. (AB)^T = B^T A^T
+    results[2] = np.allclose((A @ B).T, B.T @ A.T, rtol=tol, atol=tol)
+    
+    # 3. det(A) = det(A^T)
+    results[3] = np.isclose(np.linalg.det(A), np.linalg.det(A.T), rtol=tol, atol=tol)
+    
+    # 4. det(AB) = det(A)det(B)
+    det_AB = np.linalg.det(A @ B)
+    det_A_det_B = np.linalg.det(A) * np.linalg.det(B)
+    results[4] = np.isclose(det_AB, det_A_det_B, rtol=tol, atol=tol)
+    
+    # 5. det(A^{-1}) = 1/det(A) (только для обратимой A)
+    try:
+        A_inv = np.linalg.inv(A)
+        results[5] = np.isclose(np.linalg.det(A_inv), 1/np.linalg.det(A), rtol=tol, atol=tol)
+    except np.linalg.LinAlgError:
+        results[5] = "A singular"
+    
+    # 6. (AB)^{-1} = B^{-1}A^{-1} (только для обратимых A и B)
+    try:
+        AB_inv = np.linalg.inv(A @ B)
+        B_inv_A_inv = np.linalg.inv(B) @ np.linalg.inv(A)
+        results[6] = np.allclose(AB_inv, B_inv_A_inv, rtol=tol, atol=tol)
+    except np.linalg.LinAlgError:
+        results[6] = "Matrix singular"
+    
+    # 7. (A - B)^{-1} = A^{-1} + A^{-1}B(A - B)^{-1} (условно)
+    try:
+        A_minus_B = A - B
+        lhs = np.linalg.inv(A_minus_B)
+        A_inv = np.linalg.inv(A)
+        rhs = A_inv + A_inv @ B @ np.linalg.inv(A_minus_B)
+        results[7] = np.allclose(lhs, rhs, rtol=tol, atol=tol)
+    except np.linalg.LinAlgError:
+        results[7] = "Matrix singular"
+    
+    return results
+
+properties = check_properties(A, B)
+
+with printoptions(precision=3, suppress=True):
+    print(f"Матрица A:\n{A}\n")
+    print(f"Матрица B:\n{B}\n")
+    for prop, result in properties.items():
+        print(f"Свойство {prop}: {'Выполнено' if result == True else 'Не выполнено' if result is False else result}")
+```
+
+Упражнение 18.3 (Всё решено)
+
+```{python}
+
+
+A = np.array([
+    [2, 1, -1],
+    [-3, -1, 2],
+    [-2, 1, 2]
+], dtype=float)
+
+b = np.array([8, -11, -3], dtype=float)
+
+print("С-ма:")
+print("A =\n", A)
+print("b =", b)
+
+A_original = A.copy()
+b_original = b.copy()
+
+n = A.shape[0]
+
+augmented = np.column_stack((A, b))
+print("\nРасширенная [A|b]:")
+print(augmented)
+print(augmented[[0, 0]])
+
+for i in range(n):
+    max_idx = i + np.argmax(np.abs(augmented[i:, i]))
+    
+    if max_idx != i:
+        augmented[[i, max_idx]] = augmented[[max_idx, i]]
+    
+    if np.abs(augmented[i, i]) < 1e-10:
+        print(f"\nМатрица диагональная")
+        break
+    
+    augmented[i] = augmented[i] / augmented[i, i]
+    
+    for j in range(i+1, n):
+        factor = augmented[j, i]
+        augmented[j] -= factor * augmented[i]
+
+print("\nДиагональная матрица:")
+print(augmented)
+
+x = np.zeros(n)
+for i in range(n-1, -1, -1):
+    x[i] = augmented[i, -1] - np.sum(augmented[i, i+1:n] * x[i+1:])
+
+print("\nSolution:")
+print("x =", x)
+
+print("\Проверка:")
+print("Ax =", np.dot(A_original, x))
+print("b =", b_original)
+print("|Ax - b| =", np.linalg.norm(np.dot(A_original, x) - b_original))
+
+def solve_system_gauss(A, b):
+    A = A.copy().astype(float)
+    b = b.copy().astype(float)
+    n = A.shape[0]
+    
+    augmented = np.column_stack((A, b))
+    
+    for i in range(n):
+        max_idx = i + np.argmax(np.abs(augmented[i:, i]))
+        
+        if max_idx != i:
+            augmented[[i, max_idx]] = augmented[[max_idx, i]]
+        
+        if np.abs(augmented[i, i]) < 1e-10:
+            return None
+        
+        augmented[i] = augmented[i] / augmented[i, i]
+        
+        for j in range(i+1, n):
+            factor = augmented[j, i]
+            augmented[j] -= factor * augmented[i]
+    
+    x = np.zeros(n)
+    for i in range(n-1, -1, -1):
+        x[i] = augmented[i, -1] - np.sum(augmented[i, i+1:n] * x[i+1:])
+    
+    return x
+
+print("\nDemonstrating solver with a different system:")
+A_test = np.array([
+    [4, 2, -1],
+    [3, 5, 2],
+    [1, 1, 4]
+], dtype=float)
+b_test = np.array([7, 8, 3], dtype=float)
+
+x_test = solve_system_gauss(A_test, b_test)
+print("A =\n", A_test)
+print("b =", b_test)
+print("Решение x =", x_test)
+print("Проверка Ax =", np.dot(A_test, x_test))
+print("|Ax - b| =", np.linalg.norm(np.dot(A_test, x_test) - b_test))
+```
+
+```{python}
+A[[1,1]]
+```
+
