@@ -1,0 +1,2099 @@
+# Упражнение 19.1 (Одномерная минимизация)
+```{r}
+f <- function(x) {
+  11 / (1 + exp(-x)) + 7 * cos(3 * x) + x^2 - 1
+}
+
+result <- optimize(f, interval = c(-5, 5))
+
+x_vals <- seq(-5, 5, length.out = 1000)
+y_vals <- sapply(x_vals, f)
+
+plot(x_vals, y_vals, type = "l", col = "blue", lwd = 2,
+     main = "График функции и точка глобального минимума",
+     xlab = "x", ylab = "f(x)")
+
+points(result$minimum, result$objective, col = "red", pch = 19, cex = 1.5)
+```
+Минимув в точке `r result$minimum ` и значение функции `r result$objective`
+
+# Упражнение 19.2  (Неограниченная)
+```{r}
+source('helper/sample.R')
+source('helper/sample.R')
+source('helper/plotly.R')
+source('helper/smoof.R')
+source('helper/smoof_plotly.R')
+source('helper/nloptr.R')
+```
+
+```{r}
+#| label: setup-optimization
+#| echo: true
+#| 
+f <- function(x) {
+  x1 <- x[1]
+  x2 <- x[2]
+   7 * x1^2 + 3 * x1 * x2 + 9 * x2^2 +
+    8 * exp(-(x1^2 / 3 - (x2 + 3)^2 / 5)) +
+    9 * exp(-((x1 - 1)^2 / 5 + (x2 - 2)^2 / 2))
+}
+
+par <- ParamHelpers::makeNumericParamSet(
+  len = 2L,
+  lower = c(-5, -5),
+  upper = c(5, 5)
+)
+
+objfn <- smoof::makeSingleObjectiveFunction(
+  fn = f,
+  par.set = par
+)
+
+x0 <- c(0, 0)
+```
+## Метод Нелдера_мида
+```{r}
+#| label: run-nelder-mead
+#| echo: true
+
+res_nm <- nloptr::nloptr(
+  x0 = x0,
+  eval_f = function(x) objfn(x), 
+  opts = list(
+    algorithm = "NLOPT_LN_NELDERMEAD",
+    xtol_rel = 1.0e-8
+  )
+)
+res_nm
+```
+
+```{r}
+#| label: trace-nelder-mead
+#| echo: true
+
+trace_nm <- nloptr_trace(
+  x0 = x0,
+  eval_f = objfn,
+  opts = list(
+    algorithm = "NLOPT_LN_NELDERMEAD",
+    xtol_rel = 1.0e-8,
+    maxeval = 200
+  )
+)
+```
+
+```{r}
+#| label: contour-plot-nm
+#| message: false
+#| warning: false
+#| fig-cap: "Контурный график функции для метода Nelder-Mead"
+
+fig_nm <- smoof_pcontour(objfn, 100)
+```
+
+```{r}
+#| label: eval-points-nm
+#| message: false
+#| warning: false
+#| fig-cap: "Точки вычисления функции (Nelder-Mead)"
+
+fig_nm |>
+  padd_eval_points(uni_sample(trace_nm$eval$eval_f, 100)) |>
+  padd_start_stop_points(trace_nm$eval$eval_f)
+```
+
+```{r}
+#| label: path-points-nm
+#| message: false
+#| warning: false
+#| fig-cap: "Путь оптимизации (Nelder-Mead)"
+
+fig_nm |>
+  padd_path_points(trace_nm$path) |>
+  padd_start_stop_points(trace_nm$eval$eval_f)
+```
+
+```{r}
+#| label: call-count-nm
+#| echo: true
+#| tbl-cap: "Количество вызовов (Nelder-Mead)"
+
+trace_nm$count |>
+  knitr::kable()
+```
+## Метод локальной вариации
+```{r}
+#| label: run-praxis
+#| echo: true
+
+res_praxis <- nloptr::nloptr(
+  x0 = x0,
+  eval_f = function(x) f(x), 
+  opts = list(
+    algorithm = "NLOPT_LN_PRAXIS",
+    xtol_rel = 1.0e-8
+  )
+)
+
+res_praxis
+```
+
+```{r}
+#| label: trace-praxis
+#| echo: true
+
+trace_praxis <- nloptr_trace(
+  x0 = x0,
+  eval_f = objfn,
+  opts = list(
+    algorithm = "NLOPT_LN_PRAXIS",
+    xtol_rel = 1.0e-8,
+    maxeval = 200
+  )
+)
+```
+
+```{r}
+#| label: contour-plot-praxis
+#| message: false
+#| warning: false
+#| fig-cap: "Контурный график функции для метода PRAXIS"
+
+fig_praxis <- smoof_pcontour(objfn, 100)
+```
+
+```{r}
+#| label: eval-points-praxis
+#| message: false
+#| warning: false
+#| fig-cap: "Точки вычисления функции (PRAXIS)"
+
+fig_praxis |>
+  padd_eval_points(uni_sample(trace_praxis$eval$eval_f, 100)) |>
+  padd_start_stop_points(trace_praxis$eval$eval_f)
+```
+
+```{r}
+#| label: path-points-praxis
+#| message: false
+#| warning: false
+#| fig-cap: "Путь оптимизации (PRAXIS)"
+
+fig_praxis |>
+  padd_path_points(trace_praxis$path) |>
+  padd_start_stop_points(trace_praxis$eval$eval_f)
+```
+
+```{r}
+#| label: call-count-praxis
+#| echo: true
+#| tbl-cap: "Количество вызовов (PRAXIS)"
+
+trace_praxis$count |>
+  knitr::kable()
+```
+
+## Метод BFGS
+```{r}
+#| label: setup-bfgs-gradient-manual
+#| echo: true
+
+f_grad <- function(x) {
+  x1 <- x[1]
+  x2 <- x[2]
+  
+  term_A_exponent <- -(x1^2 / 3 - (x2 + 3)^2 / 5)
+  term_B_exponent <- -((x1 - 1)^2 / 5 + (x2 - 2)^2 / 2)
+  
+  exp_A <- exp(term_A_exponent)
+  exp_B <- exp(term_B_exponent)
+  
+  # df/dx1
+  df_dx1 <- 14 * x1 + 3 * x2 + 
+            8 * exp_A * (-2 * x1 / 3) + 
+            9 * exp_B * (-2 * (x1 - 1) / 5)
+            
+  # df/dx2
+  df_dx2 <- 3 * x1 + 18 * x2 + 
+            8 * exp_A * (2 * (x2 + 3) / 5) + 
+            9 * exp_B * (-(x2 - 2)) 
+
+  return(c(df_dx1, df_dx2))
+}
+
+objfn_g <- smoof::makeMultiObjectiveFunction(
+  fn = f_grad,
+  par.set = par, 
+  n.objectives = 2L 
+)
+```
+
+```{r}
+#| label: bfgs-eval
+#| echo: true
+
+res_bfgs <- nloptr::nloptr(
+  x0 = x0,
+  eval_f = f, 
+  eval_grad_f = f_grad,
+  opts = list(algorithm = 'NLOPT_LD_LBFGS', xtol_rel = 1.0e-8)
+)
+
+trace_bfgs <- nloptr_trace(
+  x0 = x0,
+  eval_f = objfn, 
+  eval_grad_f = objfn_g, 
+  opts = list(algorithm = 'NLOPT_LD_LBFGS', xtol_rel = 1.0e-8)
+)
+res_bfgs
+```
+
+```{r}
+#| label: bfgs-plot
+#| message: false
+#| warning: false
+#| fig-cap:
+#|   - "BFGS: Вычисления целевой функции"
+#|   - "BFGS: Вычисления градиента и путь оптимизации"
+#|   - "BFGS: Путь оптимизации на целевой функции"
+
+fig_bfgs_base <- smoof_pcontour(objfn, 30) 
+
+plot_obj_eval_bfgs <- fig_bfgs_base |>
+  padd_eval_points(uni_sample(trace_bfgs$eval$eval_f, 100)) |>
+  padd_start_stop_points(trace_bfgs$eval$eval_f)
+plot_obj_eval_bfgs
+
+plot_grad_eval_bfgs <- smoof_pcontour_grad(objfn_g, 30) |>
+  padd_eval_points(uni_sample(trace_bfgs$eval$eval_grad_f, 100)) |>
+  padd_path_points(trace_bfgs$path) |>
+  padd_start_stop_points(trace_bfgs$eval$eval_grad_f)
+plot_grad_eval_bfgs
+
+plot_obj_path_bfgs <- fig_bfgs_base |> 
+  padd_path_points(trace_bfgs$path) |>
+  padd_start_stop_points(trace_bfgs$eval$eval_f)
+plot_obj_path_bfgs
+```
+```{r}
+#| label: bfgs-count
+#| echo: false
+
+trace_bfgs$count |>
+  knitr::kable()
+```
+
+## Метод Ньютона
+```{r}
+#| label: newton-eval
+#| echo: true
+
+res_newton <- nloptr::nloptr(
+  x0 = x0,
+  eval_f = f,
+  eval_grad_f = f_grad,
+  opts = list(algorithm = 'NLOPT_LD_TNEWTON_PRECOND_RESTART', xtol_rel = 1.0e-8)
+)
+
+trace_newton <- nloptr_trace(
+  x0 = x0,
+  eval_f = objfn,
+  eval_grad_f = objfn_g,
+  opts = list(algorithm = 'NLOPT_LD_TNEWTON_PRECOND_RESTART', xtol_rel = 1.0e-8)
+)
+res_newton
+```
+
+```{r}
+#| label: newton-plot
+#| message: false
+#| warning: false
+#| fig-cap:
+#|   - "Ньютон: Вычисления целевой функции"
+#|   - "Ньютон: Вычисления градиента и путь оптимизации"
+#|   - "Ньютон: Путь оптимизации на целевой функции"
+
+fig_newton_base <- smoof_pcontour(objfn, 30) 
+
+plot_obj_eval_newton <- fig_newton_base |>
+  padd_eval_points(uni_sample(trace_newton$eval$eval_f, 100)) |>
+  padd_start_stop_points(trace_newton$eval$eval_f)
+plot_obj_eval_newton
+
+plot_grad_eval_newton <- smoof_pcontour_grad(objfn_g, 30) |>
+  padd_eval_points(uni_sample(trace_newton$eval$eval_grad_f, 100)) |>
+  padd_path_points(trace_newton$path) |>
+  padd_start_stop_points(trace_newton$eval$eval_grad_f)
+plot_grad_eval_newton
+
+plot_obj_path_newton <- fig_newton_base |> 
+  padd_path_points(trace_newton$path) |>
+  padd_start_stop_points(trace_newton$eval$eval_f)
+plot_obj_path_newton
+```
+
+```{r}
+#| label: newton-count
+
+trace_newton$count |>
+  knitr::kable()
+```
+
+# Упражнение 19.3 (С ограничениями) 
+
+## COBYLA
+
+```{r}
+#| label: setup-cobyla-constraints
+
+constr_ineq_cobyla <- function(x) {
+  x1 <- x[1]
+  x2 <- x[2]
+  
+  g1 <- (x1^2 / 10) + (x2^2 / 3) - (x1 * x2 / 5) - 6
+  g2 <- (x1^2 / 3) + (x2^2 / 10) + (x1 * x2 / 5) - 3
+  
+  return(c(g1, g2))
+}
+
+constr_ineq_fn_cobyla <- smoof::makeMultiObjectiveFunction(
+  fn = constr_ineq_cobyla,
+  par.set = par,
+  n.objectives = 2L
+)
+```
+
+
+```{r}
+#| label: cobyla-eval
+
+res_cobyla <- nloptr::nloptr(
+  x0 = x0,
+  eval_f = f,
+  eval_g_ineq = constr_ineq_cobyla,
+  opts = list(
+    algorithm = 'NLOPT_LN_COBYLA',
+    xtol_rel = 1.0e-8
+  )
+)
+
+trace_cobyla <- nloptr_trace(
+  x0 = x0,
+  eval_f = objfn,
+  eval_g_ineq = constr_ineq_fn_cobyla,
+  opts = list(
+    algorithm = 'NLOPT_LN_COBYLA',
+    xtol_rel = 1.0e-8
+  )
+)
+res_cobyla
+```
+```{r}
+#| label: cobyla-plot
+#| message: false
+#| warning: false
+#| fig-cap:
+#|   - "COBYLA: Вычисления целевой функции и ограничения"
+#|   - "COBYLA: Вычисления ограничений и ограничения"
+#|   - "COBYLA: Путь оптимизации и ограничения"
+
+fig_cobyla_base <- smoof_pcontour(objfn, 100)
+
+plot_obj_eval_cobyla <- fig_cobyla_base |>
+  padd_eval_points(uni_sample(trace_cobyla$eval$eval_f, 100)) |>
+  padd_start_stop_points(trace_cobyla$eval$eval_f)
+
+x_seq <- seq(-5, 5, length.out = 200)
+y_seq <- seq(-5, 5, length.out = 200)
+grid <- expand.grid(x1 = x_seq, x2 = y_seq)
+g1 <- matrix(with(grid, (x1^2 / 10) + (x2^2 / 3) - (x1 * x2 / 5) - 6), 200, 200)
+g2 <- matrix(with(grid, (x1^2 / 3) + (x2^2 / 10) + (x1 * x2 / 5) - 3), 200, 200)
+
+add_constraints_contours <- function(plot) {
+  plot |>
+    plotly::add_contour(
+      z = g1, x = x_seq, y = y_seq,
+      showscale = FALSE, contours = list(coloring = 'lines', showlabels = FALSE, start = 0, end = 0, size = 1),
+      line = list(color = 'red', width = 3),
+      name = "g1 = 0", inherit = FALSE
+    ) |>
+    plotly::add_contour(
+      z = g2, x = x_seq, y = y_seq,
+      showscale = FALSE, contours = list(coloring = 'lines', showlabels = FALSE, start = 0, end = 0, size = 1),
+      line = list(color = 'blue', width = 3),
+      name = "g2 = 0", inherit = FALSE
+    )
+}
+
+plot_obj_eval_cobyla <- add_constraints_contours(plot_obj_eval_cobyla)
+plot_obj_eval_cobyla
+
+plot_constr_eval_cobyla <- fig_cobyla_base |> 
+  padd_eval_points(uni_sample(trace_cobyla$eval$eval_g_ineq, 100)) |>
+  padd_start_stop_points(trace_cobyla$eval$eval_f)
+plot_constr_eval_cobyla <- add_constraints_contours(plot_constr_eval_cobyla)
+plot_constr_eval_cobyla
+
+plot_path_cobyla <- fig_cobyla_base |>
+  padd_path_points(trace_cobyla$path) |>
+  padd_start_stop_points(trace_cobyla$eval$eval_f) 
+plot_path_cobyla <- add_constraints_contours(plot_path_cobyla)
+plot_path_cobyla
+```
+
+```{r}
+#| label: cobyla-count
+
+trace_cobyla$count |>
+  knitr::kable()
+```
+
+## Moving Asymptotes
+
+```{r}
+#| label: setup-mma-constraints
+
+constr_ineq_jac_cobyla <- function(x) {
+  x1 <- x[1]
+  x2 <- x[2]
+  
+  dg1_dx1 <- (2 * x1 / 10) - (x2 / 5)
+  dg1_dx2 <- (2 * x2 / 3) - (x1 / 5)
+  
+  dg2_dx1 <- (2 * x1 / 3) + (x2 / 5)
+  dg2_dx2 <- (2 * x2 / 10) + (x1 / 5)
+  
+  return(rbind(c(dg1_dx1, dg1_dx2), 
+               c(dg2_dx1, dg2_dx2)))
+}
+
+fn_jac_vectorized_cobyla <- function(x) {
+  jac_matrix <- constr_ineq_jac_cobyla(x) 
+  return(as.vector(jac_matrix)) 
+}
+
+constr_ineq_jac_smoof_cobyla <- smoof::makeMultiObjectiveFunction(
+  fn = fn_jac_vectorized_cobyla,
+  par.set = par, 
+  n.objectives = 4L 
+)
+```
+
+```{r}
+#| label: mma-eval
+
+res_mma <- nloptr::nloptr(
+  x0 = x0,
+  eval_f = f,
+  eval_grad_f = f_grad, 
+  eval_g_ineq = constr_ineq_cobyla,
+  eval_jac_g_ineq = constr_ineq_jac_cobyla, 
+  opts = list(
+    algorithm = "NLOPT_LD_MMA",
+    xtol_rel = 1.0e-8
+  )
+)
+
+trace_mma <- nloptr_trace(
+  x0 = x0,
+  eval_f = objfn,
+  eval_grad_f = objfn_g, 
+  eval_g_ineq = constr_ineq_fn_cobyla,
+  eval_jac_g_ineq = constr_ineq_jac_smoof_cobyla,
+  opts = list(
+    algorithm = "NLOPT_LD_MMA",
+    xtol_rel = 1.0e-8
+  )
+)
+res_mma
+```
+
+```{r}
+#| label: mma-plot
+#| message: false
+#| warning: false
+#| fig-cap:
+#|   - "MMA: Вычисления целевой функции и ограничения"
+#|   - "MMA: Вычисления ограничений и ограничения"
+#|   - "MMA: Путь оптимизации и ограничения"
+
+
+fig_mma_base <- smoof_pcontour(objfn, 100) 
+
+plot_obj_eval_mma <- fig_mma_base |>
+  padd_eval_points(uni_sample(trace_mma$eval$eval_f, 100)) |>
+  padd_start_stop_points(trace_mma$eval$eval_f) |>
+  add_constraints_contours()
+plot_obj_eval_mma
+
+plot_constr_eval_mma <- fig_mma_base |>
+  padd_eval_points(uni_sample(trace_mma$eval$eval_g_ineq, 100)) |>
+  padd_start_stop_points(trace_mma$eval$eval_f) |>
+  add_constraints_contours()
+plot_constr_eval_mma
+
+plot_path_mma <- fig_mma_base |>
+  padd_path_points(trace_mma$path) |>
+  padd_start_stop_points(trace_mma$eval$eval_f) |>
+  add_constraints_contours()
+plot_path_mma
+```
+
+```{r}
+#| label: mma-count
+trace_mma$count |>
+  knitr::kable()
+```
+
+
+# Упражнение 19.4 (Овраг)
+
+```{r}
+#| label: setup-ravine-function
+#| echo: true
+
+# Определение функции "Овраг"
+f_ravine <- function(vars) {
+  x <- vars[1]
+  y <- vars[2]
+  term1 <- (9 * x + 8 * y - 5)^4
+  term2 <- (5 * x + 2 * y - 1)^4
+  return(term1 + term2)
+}
+
+# Определение градиента функции "Овраг"
+f_grad_ravine <- function(vars) {
+  x <- vars[1]
+  y <- vars[2]
+  
+  # df/dx
+  df_dx <- 4 * (9 * x + 8 * y - 5)^3 * 9 + 4 * (5 * x + 2 * y - 1)^3 * 5
+  
+  # df/dy
+  df_dy <- 4 * (9 * x + 8 * y - 5)^3 * 8 + 4 * (5 * x + 2 * y - 1)^3 * 2
+  
+  return(c(df_dx, df_dy))
+}
+
+# Параметры для smoof (можно адаптировать диапазоны, если необходимо)
+par_ravine <- ParamHelpers::makeNumericParamSet(
+  len = 2L,
+  lower = c(-5, -5), # Можно изменить, если ожидаемый минимум в другом месте
+  upper = c(5, 5)   # Можно изменить
+)
+
+# Создание smoof-объекта для целевой функции
+objfn_ravine <- smoof::makeSingleObjectiveFunction(
+  fn = f_ravine,
+  par.set = par_ravine
+)
+
+# Создание smoof-объекта для градиента
+objfn_g_ravine <- smoof::makeMultiObjectiveFunction(
+  fn = f_grad_ravine,
+  par.set = par_ravine, 
+  n.objectives = 2L 
+)
+
+# Начальная точка (можно изменить)
+x0_ravine <- c(0, 0) 
+```
+
+## Метод Нелдера-Мида (Овраг)
+```{r}
+#| label: run-nelder-mead-ravine
+#| echo: true
+
+res_nm_ravine <- nloptr::nloptr(
+  x0 = x0_ravine,
+  eval_f = function(x) objfn_ravine(x), 
+  opts = list(
+    algorithm = "NLOPT_LN_NELDERMEAD",
+    xtol_rel = 1.0e-8
+  )
+)
+res_nm_ravine
+```
+
+```{r}
+#| label: trace-nelder-mead-ravine
+#| echo: true
+
+trace_nm_ravine <- nloptr_trace(
+  x0 = x0_ravine,
+  eval_f = objfn_ravine,
+  opts = list(
+    algorithm = "NLOPT_LN_NELDERMEAD",
+    xtol_rel = 1.0e-8,
+    maxeval = 500 # Можно увеличить для сложных функций
+  )
+)
+```
+
+```{r}
+#| label: contour-plot-nm-ravine
+#| message: false
+#| warning: false
+#| fig-cap: "Контурный график функции 'Овраг' (Nelder-Mead)"
+
+fig_nm_ravine <- smoof_pcontour(objfn_ravine, 100)
+```
+
+```{r}
+#| label: eval-points-nm-ravine
+#| message: false
+#| warning: false
+#| fig-cap: "Точки вычисления функции 'Овраг' (Nelder-Mead)"
+
+fig_nm_ravine |>
+  padd_eval_points(uni_sample(trace_nm_ravine$eval$eval_f, 100)) |>
+  padd_start_stop_points(trace_nm_ravine$eval$eval_f)
+```
+
+```{r}
+#| label: path-points-nm-ravine
+#| message: false
+#| warning: false
+#| fig-cap: "Путь оптимизации 'Овраг' (Nelder-Mead)"
+
+fig_nm_ravine |>
+  padd_path_points(trace_nm_ravine$path) |>
+  padd_start_stop_points(trace_nm_ravine$eval$eval_f)
+```
+
+```{r}
+#| label: call-count-nm-ravine
+#| echo: true
+#| tbl-cap: "Количество вызовов 'Овраг' (Nelder-Mead)"
+
+trace_nm_ravine$count |>
+  knitr::kable()
+```
+
+## Метод Ньютона (Овраг)
+```{r}
+#| label: newton-eval-ravine
+#| echo: true
+
+res_newton_ravine <- nloptr::nloptr(
+  x0 = x0_ravine,
+  eval_f = f_ravine, # Используем прямую функцию
+  eval_grad_f = f_grad_ravine, # Используем прямую функцию градиента
+  opts = list(algorithm = 'NLOPT_LD_TNEWTON_PRECOND_RESTART', xtol_rel = 1.0e-8)
+)
+
+trace_newton_ravine <- nloptr_trace(
+  x0 = x0_ravine,
+  eval_f = objfn_ravine, # smoof-объект
+  eval_grad_f = objfn_g_ravine, # smoof-объект градиента
+  opts = list(algorithm = 'NLOPT_LD_TNEWTON_PRECOND_RESTART', xtol_rel = 1.0e-8)
+)
+res_newton_ravine
+```
+
+```{r}
+#| label: newton-plot-ravine
+#| message: false
+#| warning: false
+#| fig-cap:
+#|   - "Ньютон (Овраг): Вычисления целевой функции"
+#|   - "Ньютон (Овраг): Вычисления градиента и путь оптимизации"
+#|   - "Ньютон (Овраг): Путь оптимизации на целевой функции"
+
+fig_newton_base_ravine <- smoof_pcontour(objfn_ravine, 30) 
+
+plot_obj_eval_newton_ravine <- fig_newton_base_ravine |>
+  padd_eval_points(uni_sample(trace_newton_ravine$eval$eval_f, 100)) |>
+  padd_start_stop_points(trace_newton_ravine$eval$eval_f)
+plot_obj_eval_newton_ravine
+
+plot_grad_eval_newton_ravine <- smoof_pcontour_grad(objfn_g_ravine, 30) |>
+  padd_eval_points(uni_sample(trace_newton_ravine$eval$eval_grad_f, 100)) |>
+  padd_path_points(trace_newton_ravine$path) |>
+  padd_start_stop_points(trace_newton_ravine$eval$eval_grad_f)
+plot_grad_eval_newton_ravine
+
+plot_obj_path_newton_ravine <- fig_newton_base_ravine |> 
+  padd_path_points(trace_newton_ravine$path) |>
+  padd_start_stop_points(trace_newton_ravine$eval$eval_f)
+plot_obj_path_newton_ravine
+```
+
+```{r}
+#| label: newton-count-ravine
+#| echo: false
+trace_newton_ravine$count |>
+  knitr::kable()
+```
+
+
+## Упражнение 19.5 (Много переменных)
+
+
+Для этого упражнения мы будем минимизировать целевую функцию $F=(\sum_{i=1}^N{L_ix_i}-b)^2$ для различных размерностей N. Коэффициенты $L_i$ и скаляр $b$ будут генерироваться случайным образом для каждого N.
+
+## N = 20
+
+### Настройка (N=20)
+```{r}
+#| label: setup-many-vars-N20
+#| echo: true
+
+N_20 <- 20
+set.seed(123) # Для воспроизводимости генерации коэффициентов
+L_coeffs_N20 <- runif(N_20, -2, 2) 
+b_coeff_N20 <- runif(1, -5, 5)   
+
+f_many_vars_N20 <- function(x_vec) {
+  if (length(x_vec) != N_20) stop(paste("Input vector x_vec must have length", N_20))
+  sum_val <- sum(L_coeffs_N20 * x_vec) - b_coeff_N20
+  return(sum_val^2)
+}
+
+f_grad_many_vars_N20 <- function(x_vec) {
+  if (length(x_vec) != N_20) stop(paste("Input vector x_vec must have length", N_20))
+  sum_val <- sum(L_coeffs_N20 * x_vec) - b_coeff_N20
+  gradient <- 2 * sum_val * L_coeffs_N20
+  return(gradient)
+}
+
+par_many_vars_N20 <- ParamHelpers::makeNumericParamSet(
+  len = N_20,
+  lower = rep(-10, N_20), 
+  upper = rep(10, N_20)  
+)
+
+objfn_many_vars_N20 <- smoof::makeSingleObjectiveFunction(
+  name = "ManyVars_N20",
+  fn = f_many_vars_N20,
+  par.set = par_many_vars_N20
+)
+
+objfn_g_many_vars_N20 <- smoof::makeMultiObjectiveFunction(
+  name = "ManyVars_Grad_N20",
+  fn = f_grad_many_vars_N20,
+  par.set = par_many_vars_N20,
+  n.objectives = N_20 
+)
+
+x0_many_vars_N20 <- rep(0, N_20)
+```
+
+### Метод Нелдера-Мида (N=20)
+```{r}
+#| label: run-nelder-mead-many-vars-N20
+
+res_nm_many_vars_N20 <- nloptr::nloptr(
+  x0 = x0_many_vars_N20,
+  eval_f = function(x) objfn_many_vars_N20(x), 
+  opts = list(
+    algorithm = "NLOPT_LN_NELDERMEAD",
+    xtol_rel = 1.0e-8,
+    maxeval = 1000 * N_20 
+  )
+)
+print(paste("N=20, Nelder-Mead, Objective:", res_nm_many_vars_N20$objective))
+```
+
+```{r}
+#| label: trace-nelder-mead-many-vars-N20
+
+trace_nm_many_vars_N20 <- nloptr_trace(
+  x0 = x0_many_vars_N20,
+  eval_f = objfn_many_vars_N20,
+  opts = list(
+    algorithm = "NLOPT_LN_NELDERMEAD",
+    xtol_rel = 1.0e-8,
+    maxeval = 1000 * N_20
+  )
+)
+```
+
+```{r}
+#| label: call-count-nm-many-vars-N20
+#| tbl-cap: "Количество вызовов (Nelder-Mead, N=20)"
+
+trace_nm_many_vars_N20$count |>
+  knitr::kable()
+```
+
+### Метод BFGS (N=20)
+```{r}
+#| label: bfgs-eval-many-vars-N20
+
+res_bfgs_many_vars_N20 <- nloptr::nloptr(
+  x0 = x0_many_vars_N20,
+  eval_f = f_many_vars_N20, 
+  eval_grad_f = f_grad_many_vars_N20,
+  opts = list(algorithm = 'NLOPT_LD_LBFGS', xtol_rel = 1.0e-8)
+)
+print(paste("N=20, BFGS, Objective:", res_bfgs_many_vars_N20$objective))
+```
+
+```{r}
+#| label: trace-bfgs-many-vars-N20
+#| echo: true
+
+trace_bfgs_many_vars_N20 <- nloptr_trace(
+  x0 = x0_many_vars_N20,
+  eval_f = objfn_many_vars_N20, 
+  eval_grad_f = objfn_g_many_vars_N20, 
+  opts = list(algorithm = 'NLOPT_LD_LBFGS', xtol_rel = 1.0e-8)
+)
+```
+
+```{r}
+#| label: call-count-bfgs-many-vars-N20
+#| tbl-cap: "Количество вызовов (BFGS, N=20)"
+
+trace_bfgs_many_vars_N20$count |>
+  knitr::kable()
+```
+
+## N = 50
+
+### Настройка (N=50)
+```{r}
+#| label: setup-many-vars-N50
+
+N_50 <- 50
+set.seed(456) 
+L_coeffs_N50 <- runif(N_50, -2, 2)
+b_coeff_N50 <- runif(1, -5, 5)   
+
+f_many_vars_N50 <- function(x_vec) {
+  if (length(x_vec) != N_50) stop(paste("Input vector x_vec must have length", N_50))
+  sum_val <- sum(L_coeffs_N50 * x_vec) - b_coeff_N50
+  return(sum_val^2)
+}
+
+f_grad_many_vars_N50 <- function(x_vec) {
+  if (length(x_vec) != N_50) stop(paste("Input vector x_vec must have length", N_50))
+  sum_val <- sum(L_coeffs_N50 * x_vec) - b_coeff_N50
+  gradient <- 2 * sum_val * L_coeffs_N50
+  return(gradient)
+}
+
+par_many_vars_N50 <- ParamHelpers::makeNumericParamSet(
+  len = N_50, lower = rep(-10, N_50), upper = rep(10, N_50)
+)
+objfn_many_vars_N50 <- smoof::makeSingleObjectiveFunction(
+  name = "ManyVars_N50", fn = f_many_vars_N50, par.set = par_many_vars_N50
+)
+objfn_g_many_vars_N50 <- smoof::makeMultiObjectiveFunction(
+  name = "ManyVars_Grad_N50", fn = f_grad_many_vars_N50, par.set = par_many_vars_N50, n.objectives = N_50
+)
+x0_many_vars_N50 <- rep(0, N_50)
+```
+
+### Метод Нелдера-Мида (N=50)
+```{r}
+#| label: run-nelder-mead-many-vars-N50
+res_nm_many_vars_N50 <- nloptr::nloptr(
+  x0 = x0_many_vars_N50, eval_f = function(x) objfn_many_vars_N50(x),
+  opts = list(algorithm = "NLOPT_LN_NELDERMEAD", xtol_rel = 1.0e-8, maxeval = 1000 * N_50)
+)
+print(paste("N=50, Nelder-Mead, Objective:", res_nm_many_vars_N50$objective))
+```
+```{r}
+#| label: trace-nelder-mead-many-vars-N50
+trace_nm_many_vars_N50 <- nloptr_trace(
+  x0 = x0_many_vars_N50, eval_f = objfn_many_vars_N50,
+  opts = list(algorithm = "NLOPT_LN_NELDERMEAD", xtol_rel = 1.0e-8, maxeval = 1000 * N_50)
+)
+```
+```{r}
+#| label: call-count-nm-many-vars-N50
+#| tbl-cap: "Количество вызовов (Nelder-Mead, N=50)"
+trace_nm_many_vars_N50$count |> knitr::kable()
+```
+
+### Метод BFGS (N=50)
+```{r}
+#| label: bfgs-eval-many-vars-N50
+res_bfgs_many_vars_N50 <- nloptr::nloptr(
+  x0 = x0_many_vars_N50, eval_f = f_many_vars_N50, eval_grad_f = f_grad_many_vars_N50,
+  opts = list(algorithm = 'NLOPT_LD_LBFGS', xtol_rel = 1.0e-8)
+)
+print(paste("N=50, BFGS, Objective:", res_bfgs_many_vars_N50$objective))
+```
+```{r}
+#| label: trace-bfgs-many-vars-N50
+trace_bfgs_many_vars_N50 <- nloptr_trace(
+  x0 = x0_many_vars_N50, eval_f = objfn_many_vars_N50, eval_grad_f = objfn_g_many_vars_N50,
+  opts = list(algorithm = 'NLOPT_LD_LBFGS', xtol_rel = 1.0e-8)
+)
+```
+```{r}
+#| label: call-count-bfgs-many-vars-N50
+#| tbl-cap: "Количество вызовов (BFGS, N=50)"
+trace_bfgs_many_vars_N50$count |> knitr::kable()
+```
+
+## N = 200
+
+### Настройка (N=200)
+```{r}
+#| label: setup-many-vars-N200
+
+N_200 <- 200
+set.seed(789) 
+L_coeffs_N200 <- runif(N_200, -2, 2) 
+b_coeff_N200 <- runif(1, -5, 5)    
+
+f_many_vars_N200 <- function(x_vec) {
+  if (length(x_vec) != N_200) stop(paste("Input vector x_vec must have length", N_200))
+  sum_val <- sum(L_coeffs_N200 * x_vec) - b_coeff_N200
+  return(sum_val^2)
+}
+
+f_grad_many_vars_N200 <- function(x_vec) {
+  if (length(x_vec) != N_200) stop(paste("Input vector x_vec must have length", N_200))
+  sum_val <- sum(L_coeffs_N200 * x_vec) - b_coeff_N200
+  gradient <- 2 * sum_val * L_coeffs_N200
+  return(gradient)
+}
+
+par_many_vars_N200 <- ParamHelpers::makeNumericParamSet(
+  len = N_200, lower = rep(-10, N_200), upper = rep(10, N_200)
+)
+objfn_many_vars_N200 <- smoof::makeSingleObjectiveFunction(
+  name = "ManyVars_N200", fn = f_many_vars_N200, par.set = par_many_vars_N200
+)
+objfn_g_many_vars_N200 <- smoof::makeMultiObjectiveFunction(
+  name = "ManyVars_Grad_N200", fn = f_grad_many_vars_N200, par.set = par_many_vars_N200, n.objectives = N_200
+)
+x0_many_vars_N200 <- rep(0, N_200)
+```
+
+### Метод Нелдера-Мида (N=200)
+```{r}
+#| label: run-nelder-mead-many-vars-N200
+res_nm_many_vars_N200 <- nloptr::nloptr(
+  x0 = x0_many_vars_N200, eval_f = function(x) objfn_many_vars_N200(x),
+  opts = list(algorithm = "NLOPT_LN_NELDERMEAD", xtol_rel = 1.0e-8, maxeval = 100 * N_200)
+)
+print(paste("N=200, Nelder-Mead, Objective:", res_nm_many_vars_N200$objective))
+```
+```{r}
+#| label: trace-nelder-mead-many-vars-N200
+trace_nm_many_vars_N200 <- nloptr_trace(
+  x0 = x0_many_vars_N200, eval_f = objfn_many_vars_N200,
+  opts = list(algorithm = "NLOPT_LN_NELDERMEAD", xtol_rel = 1.0e-8, maxeval = 100 * N_200)
+)
+```
+```{r}
+#| label: call-count-nm-many-vars-N200
+#| tbl-cap: "Количество вызовов (Nelder-Mead, N=200)"
+trace_nm_many_vars_N200$count |> knitr::kable()
+```
+
+### Метод BFGS (N=200)
+```{r}
+#| label: bfgs-eval-many-vars-N200
+res_bfgs_many_vars_N200 <- nloptr::nloptr(
+  x0 = x0_many_vars_N200, eval_f = f_many_vars_N200, eval_grad_f = f_grad_many_vars_N200,
+  opts = list(algorithm = 'NLOPT_LD_LBFGS', xtol_rel = 1.0e-8)
+)
+print(paste("N=200, BFGS, Objective:", res_bfgs_many_vars_N200$objective))
+```
+```{r}
+#| label: trace-bfgs-many-vars-N200
+trace_bfgs_many_vars_N200 <- nloptr_trace(
+  x0 = x0_many_vars_N200, eval_f = objfn_many_vars_N200, eval_grad_f = objfn_g_many_vars_N200,
+  opts = list(algorithm = 'NLOPT_LD_LBFGS', xtol_rel = 1.0e-8)
+)
+```
+```{r}
+#| label: call-count-bfgs-many-vars-N200
+#| tbl-cap: "Количество вызовов (BFGS, N=200)"
+trace_bfgs_many_vars_N200$count |> knitr::kable()
+```
+
+# Упражнение 19.6
+## Метод штрафных функций
+
+```{r}
+#| label: setup-penalty-method
+
+penalty_term <- function(x, constr_func) {
+  g_values <- constr_func(x)
+  penalties <- sum(pmax(0, g_values)^2)
+  return(penalties)
+}
+
+grad_penalty_term <- function(x, constr_func, constr_jac_func) {
+  g_values <- constr_func(x)
+  jac_g_values <- constr_jac_func(x)
+
+  grad_pen <- numeric(length(x))
+  
+  for (j in 1:length(g_values)) {
+    if (g_values[j] > 0) {
+      grad_pen <- grad_pen + 2 * g_values[j] * jac_g_values[j, ]
+    }
+  }
+  return(grad_pen)
+}
+
+f_penalty <- function(x, rho, base_f, constr_func) {
+  return(base_f(x) + rho * penalty_term(x, constr_func))
+}
+
+f_grad_penalty <- function(x, rho, base_f_grad, constr_func, constr_jac_func) {
+  return(base_f_grad(x) + rho * grad_penalty_term(x, constr_func, constr_jac_func))
+}
+
+rho_initial <- 1       
+rho_multiplier <- 10   
+max_penalty_iter <- 5  
+penalty_solutions <- list()
+penalty_objectives <- list()
+current_x0 <- x0       
+all_paths_penalty <- list() 
+```
+
+```{r}
+#| label: run-penalty-method
+
+current_rho <- rho_initial
+
+for (iter in 1:max_penalty_iter) {
+  cat(paste("\nИтерация штрафного метода:", iter, "с rho =", current_rho, "\n"))
+  
+  current_f_penalty <- function(x) {
+    f_penalty(x, current_rho, f, constr_ineq_cobyla)
+  }
+  current_f_grad_penalty <- function(x) {
+    f_grad_penalty(x, current_rho, f_grad, constr_ineq_cobyla, constr_ineq_jac_cobyla)
+  }
+  
+  res_unconstrained <- nloptr::nloptr(
+    x0 = current_x0,
+    eval_f = current_f_penalty,
+    eval_grad_f = current_f_grad_penalty,
+    opts = list(
+      algorithm = 'NLOPT_LD_LBFGS', 
+      xtol_rel = 1.0e-6  
+    )
+  )
+  
+  current_x0 <- res_unconstrained$solution
+  penalty_solutions[[iter]] <- current_x0
+  penalty_objectives[[iter]] <- list(
+    penalized_obj = res_unconstrained$objective,
+    original_obj = f(current_x0),
+    constraints = constr_ineq_cobyla(current_x0)
+  )
+  
+  cat("Решение на итерации:", current_x0, "\n")
+  cat("Значение исходной функции:", f(current_x0), "\n")
+  cat("Значения ограничений:", constr_ineq_cobyla(current_x0), "\n")
+  
+  all_paths_penalty[[iter]] <- current_x0 
+
+  current_rho <- current_rho * rho_multiplier
+}
+
+final_solution_penalty <- current_x0
+final_objective_penalty <- f(final_solution_penalty)
+final_constraints_penalty <- constr_ineq_cobyla(final_solution_penalty)
+
+cat("\n--- Итоговое решение методом штрафных функций ---\n")
+cat("Решение x:", final_solution_penalty, "\n")
+cat("Значение целевой функции f(x):", final_objective_penalty, "\n")
+cat("Значения ограничений g(x):", final_constraints_penalty, "\n")
+```
+
+```{r}
+#| label: penalty-method-results-table
+#| tbl-cap: "Результаты итераций метода штрафных функций"
+
+results_df <- data.frame(
+  Iteration = 1:max_penalty_iter,
+  x1 = sapply(penalty_solutions, function(s) s[1]),
+  x2 = sapply(penalty_solutions, function(s) s[2]),
+  Original_Objective = sapply(penalty_objectives, function(o) o$original_obj),
+  Constraint1_g1 = sapply(penalty_objectives, function(o) o$constraints[1]),
+  Constraint2_g2 = sapply(penalty_objectives, function(o) o$constraints[2]),
+  Penalized_Objective = sapply(penalty_objectives, function(o) o$penalized_obj)
+)
+knitr::kable(results_df, digits = 6)
+```
+
+```{r}
+#| label: penalty-method-plot
+#| message: false
+#| warning: false
+#| fig-cap: "Путь метода штрафных функций (точки решений на каждой итерации штрафа)"
+
+path_df_penalty <- do.call(rbind, lapply(penalty_solutions, function(sol) data.frame(x1=sol[1], x2=sol[2])))
+
+plot_path_penalty <- fig_cobyla_base |> 
+  padd_path_points(path_df_penalty) |>
+  padd_start_stop_points(path_df_penalty) |> 
+  add_constraints_contours() 
+
+plot_path_penalty
+```
+
+# Упражнение 19.7
+
+## Метод барьерных функций
+
+```{r}
+#| label: setup-barrier-method
+
+# Барьерный член (логарифмический барьер)
+# g_i(x) <= 0, барьер -sum(log(-g_i(x)))
+barrier_term_log <- function(x, constr_func) {
+  g_values <- constr_func(x)
+  # Проверка, что все ограничения строго отрицательны
+  if (any(g_values >= 0)) {
+    return(Inf) # Барьер бесконечен, если точка недопустима или на границе
+  }
+  return(-sum(log(-g_values)))
+}
+
+# Градиент логарифмического барьерного члена
+# d/dx [-log(-g_i(x))] = - (1 / -g_i(x)) * (-dg_i/dx) = - (1 / g_i(x)) * (dg_i/dx)
+grad_barrier_term_log <- function(x, constr_func, constr_jac_func) {
+  g_values <- constr_func(x)
+  if (any(g_values >= 0)) {
+    return(rep(Inf, length(x))) # Градиент не определен, если точка недопустима
+  }
+  jac_g_values <- constr_jac_func(x) # Якобиан ограничений
+  
+  grad_b <- numeric(length(x))
+  for (j in 1:length(g_values)) {
+    grad_b <- grad_b - (1 / g_values[j]) * jac_g_values[j, ]
+  }
+  return(grad_b)
+}
+
+# Модифицированная целевая функция с барьером
+f_barrier <- function(x, mu, base_f, constr_func) {
+  b_term <- barrier_term_log(x, constr_func)
+  if (is.infinite(b_term)) {
+    return(Inf)
+  }
+  return(base_f(x) + mu * b_term)
+}
+
+# Градиент модифицированной целевой функции с барьером
+f_grad_barrier <- function(x, mu, base_f_grad, constr_func, constr_jac_func) {
+  grad_b_term <- grad_barrier_term_log(x, constr_func, constr_jac_func)
+  if (any(is.infinite(grad_b_term))) {
+    return(rep(Inf, length(x)))
+  }
+  return(base_f_grad(x) + mu * grad_b_term)
+}
+
+# Параметры метода барьерных функций
+mu_initial_barrier <- 10       # Начальное значение параметра барьера mu
+mu_divider_barrier <- 10     # Множитель для уменьшения mu
+max_barrier_iter <- 7        # Максимальное количество итераций барьерного метода
+barrier_solutions <- list()
+barrier_objectives <- list()
+
+# Начальная точка должна быть строго допустимой (g_i(x) < 0)
+# x0 = c(0,0) используется из предыдущих упражнений. Проверим его:
+# constr_ineq_cobyla(x0) # g1 = -6, g2 = -3. Оба < 0, так что x0 подходит.
+current_x0_barrier <- x0       
+all_paths_barrier <- list() 
+```
+
+```{r}
+#| label: run-barrier-method
+
+current_mu_barrier <- mu_initial_barrier
+
+for (iter in 1:max_barrier_iter) {
+  cat(paste("\nИтерация барьерного метода:", iter, "с mu =", current_mu_barrier, "\n"))
+  
+  # Обертки для текущего mu
+  current_f_barrier_fn <- function(x) {
+    f_barrier(x, current_mu_barrier, f, constr_ineq_cobyla)
+  }
+  current_f_grad_barrier_fn <- function(x) {
+    f_grad_barrier(x, current_mu_barrier, f_grad, constr_ineq_cobyla, constr_ineq_jac_cobyla)
+  }
+  
+  # Решение задачи безусловной минимизации
+  # Используем L-BFGS, так как у нас есть градиенты
+  res_unconstrained_barrier <- nloptr::nloptr(
+    x0 = current_x0_barrier,
+    eval_f = current_f_barrier_fn,
+    eval_grad_f = current_f_grad_barrier_fn,
+    opts = list(
+      algorithm = 'NLOPT_LD_LBFGS', 
+      xtol_rel = 1.0e-7, # Точность для подзадачи
+      maxeval = 1000      # Макс. число вычислений для подзадачи
+    )
+  )
+  
+  current_x0_barrier <- res_unconstrained_barrier$solution
+  barrier_solutions[[iter]] <- current_x0_barrier
+  barrier_objectives[[iter]] <- list(
+    augmented_obj = res_unconstrained_barrier$objective,
+    original_obj = f(current_x0_barrier),
+    constraints = constr_ineq_cobyla(current_x0_barrier),
+    mu = current_mu_barrier
+  )
+  
+  cat("Решение на итерации x:", current_x0_barrier, "\n")
+  cat("Значение исходной функции f(x):", f(current_x0_barrier), "\n")
+  cat("Значения ограничений g(x):", constr_ineq_cobyla(current_x0_barrier), "\n")
+  cat("Значение барьерной функции F(x,mu):", res_unconstrained_barrier$objective, "\n")
+  
+  all_paths_barrier[[iter]] <- current_x0_barrier 
+
+  # Уменьшаем параметр барьера
+  current_mu_barrier <- current_mu_barrier / mu_divider_barrier
+}
+
+final_solution_barrier <- current_x0_barrier
+final_objective_barrier <- f(final_solution_barrier)
+final_constraints_barrier <- constr_ineq_cobyla(final_solution_barrier)
+
+cat("\n--- Итоговое решение методом барьерных функций ---\n")
+cat("Решение x:", final_solution_barrier, "\n")
+cat("Значение целевой функции f(x):", final_objective_barrier, "\n")
+cat("Значения ограничений g(x):", final_constraints_barrier, "\n")
+```
+
+```{r}
+#| label: barrier-method-results-table
+#| tbl-cap: "Результаты итераций метода барьерных функций"
+
+results_df_barrier <- data.frame(
+  Iteration = 1:length(barrier_solutions),
+  Mu = sapply(barrier_objectives, function(o) o$mu),
+  x1 = sapply(barrier_solutions, function(s) s[1]),
+  x2 = sapply(barrier_solutions, function(s) s[2]),
+  Original_Objective = sapply(barrier_objectives, function(o) o$original_obj),
+  Constraint1_g1 = sapply(barrier_objectives, function(o) o$constraints[1]),
+  Constraint2_g2 = sapply(barrier_objectives, function(o) o$constraints[2]),
+  Augmented_Objective = sapply(barrier_objectives, function(o) o$augmented_obj)
+)
+knitr::kable(results_df_barrier, digits = 6)
+```
+
+```{r}
+#| label: barrier-method-plot
+#| message: false
+#| warning: false
+#| fig-cap: "Путь метода барьерных функций (точки решений на каждой итерации)"
+
+path_df_barrier <- do.call(rbind, lapply(barrier_solutions, function(sol) data.frame(x1=sol[1], x2=sol[2])))
+
+if (!exists("fig_cobyla_base")) {
+  fig_cobyla_base <- smoof_pcontour(objfn, 100)
+}
+if (!exists("add_constraints_contours")) {
+  x_seq_plot <- seq(min(par$lower[1], path_df_barrier$x1), max(par$upper[1], path_df_barrier$x1), length.out = 200)
+  y_seq_plot <- seq(min(par$lower[2], path_df_barrier$x2), max(par$upper[2], path_df_barrier$x2), length.out = 200)
+  grid_plot <- expand.grid(x1 = x_seq_plot, x2 = y_seq_plot)
+  g1_plot <- matrix(with(grid_plot, (x1^2 / 10) + (x2^2 / 3) - (x1 * x2 / 5) - 6), 200, 200)
+  g2_plot <- matrix(with(grid_plot, (x1^2 / 3) + (x2^2 / 10) + (x1 * x2 / 5) - 3), 200, 200)
+
+  add_constraints_contours <- function(plot_obj) {
+    plot_obj |>
+      plotly::add_contour(
+        z = g1_plot, x = x_seq_plot, y = y_seq_plot,
+        showscale = FALSE, contours = list(coloring = 'lines', showlabels = FALSE, start = 0, end = 0, size = 1),
+        line = list(color = 'red', width = 3),
+        name = "g1 = 0", inherit = FALSE
+      ) |>
+      plotly::add_contour(
+        z = g2_plot, x = x_seq_plot, y = y_seq_plot,
+        showscale = FALSE, contours = list(coloring = 'lines', showlabels = FALSE, start = 0, end = 0, size = 1),
+        line = list(color = 'blue', width = 3),
+        name = "g2 = 0", inherit = FALSE
+      )
+  }
+}
+
+
+plot_path_barrier <- fig_cobyla_base |> 
+  padd_path_points(path_df_barrier) |>
+  padd_start_stop_points(path_df_barrier) |> 
+  add_constraints_contours() 
+
+plot_path_barrier
+```
+
+## Загрузка необходимых библиотек
+```{r load-libraries-2}
+library(knitr)
+library(ggplot2)
+library(plotly)
+library(gridExtra)   
+library(reshape2)   
+
+library(readr)      
+library(knitr)    
+library(dplyr)      
+library(nloptr)     
+library(mvtnorm)    
+```
+
+
+# Упражнение 26.1 (В соляного)
+
+## Определение констант и базовых функций
+```{r define-constants}
+# Константы для расчетов
+B_baz_const <- -2
+b_armor_formula_const <- 1
+f_armor_formula_const <- 0.06
+BVA_const <- 1.5 
+
+# Основная функция для расчета характеристик персонажа
+calculate_morphling_stats <- function(ur, p_shifted) {
+  # Базовые значения Силы и Ловкости на данном уровне
+  Sil_base <- 23 + 3.2 * ur
+  Lov_base <- 24 + 3.9 * ur
+
+  # Применяем смещение очков
+  Sil <- Sil_base - p_shifted
+  Lov <- Lov_base + p_shifted
+
+
+
+  # Расчет показателя брони
+  B <- B_baz_const + (1/6) * Lov
+
+  # Расчет множителя урона
+  denominator_U_Mn <- b_armor_formula_const + f_armor_formula_const * abs(B)
+  if (abs(denominator_U_Mn) < 1e-9) denominator_U_Mn <- 1e-9
+  U_Mn <- 1 - (f_armor_formula_const * B) / denominator_U_Mn
+
+  # Расчет здоровья
+  T_Zd <- 120 + 22 * Sil
+  
+  # Расчет эффективного здоровья
+  EHP <- if (abs(U_Mn) < 1e-9) {
+    ifelse(T_Zd > 0, Inf, 0) 
+  } else {
+    T_Zd / U_Mn
+  }
+  if (!is.na(EHP) && EHP < 0 && U_Mn < 0) EHP <- -Inf
+
+  # Расчет параметров атаки
+  Atk_per_s <- (100 + Lov) / (100 * BVA_const)
+  U_attack <- 18 + Lov
+  DPS <- U_attack * Atk_per_s
+  
+  # Регенерация здоровья
+  HP_regen <- 0.1 * Sil
+
+  # Возвращаем все рассчитанные показатели
+  return(list(
+    valid = TRUE, Sil = Sil, Lov = Lov, B = B, U_Mn = U_Mn,
+    T_Zd = T_Zd, EHP = EHP, Atk_per_s = Atk_per_s,
+    U_attack = U_attack, DPS = DPS, HP_regen = HP_regen
+  ))
+}
+```
+
+## Часть 1: Максимизация эффективного здоровья
+```{r solve-part1}
+# Функция для решения первой части задачи
+solve_part1 <- function(max_level = 30) {
+  results_part1 <- data.frame(
+    level = integer(),
+    max_EHP = numeric(),
+    best_p_shifted = numeric(), 
+    Sil_at_max_EHP = numeric(),
+    Lov_at_max_EHP = numeric()
+  )
+
+  for (ur_val in 1:max_level) {
+    # Расчет базовых значений для текущего уровня
+    Sil_base_level <- 23 + 3.2 * ur_val
+    Lov_base_level <- 24 + 3.9 * ur_val
+
+    # Определение диапазона возможных значений p
+    p_min <- ceiling(1 - Lov_base_level)
+    p_max <- floor(Sil_base_level - 1)
+    
+    # Поиск оптимального значения p
+    current_max_EHP <- -Inf
+    current_best_p_shifted <- NA 
+    current_best_Sil <- NA
+    current_best_Lov <- NA
+
+    for (p_val in p_min:p_max) {
+      stats <- calculate_morphling_stats(ur_val, p_val)
+      if (stats$valid && is.finite(stats$EHP) && stats$EHP > current_max_EHP) {
+        current_max_EHP <- stats$EHP
+        current_best_p_shifted <- p_val
+        current_best_Sil <- stats$Sil
+        current_best_Lov <- stats$Lov
+      }
+    }
+  
+    # Добавляем результаты в таблицу
+    results_part1 <- rbind(results_part1, data.frame(
+      level = ur_val,
+      max_EHP = current_max_EHP,
+      best_p_shifted = current_best_p_shifted,
+      Sil_at_max_EHP = current_best_Sil,
+      Lov_at_max_EHP = current_best_Lov
+    ))
+  }
+  return(results_part1)
+}
+
+# Запуск расчета до максимального уровня
+max_level_simulation <- 30 
+results_p1 <- solve_part1(max_level_simulation)
+```
+
+## Анализ результатов части 1
+```{r analyze-part1}
+# Вывод табличных результатов
+kable(head(results_p1, 10), 
+      col.names = c("Уровень", "Макс. ЭЗ", "Оптимальное p", "Сила", "Ловкость"),
+      caption = "Максимальное эффективное здоровье по уровням (первые 10 уровней)")
+
+# Визуализация результатов с использованием ggplot2
+# График максимального эффективного здоровья
+ehp_plot <- ggplot(results_p1, aes(x = level, y = max_EHP)) +
+  geom_line(color = "#3366CC", size = 1.2) +
+  geom_point(color = "#3366CC", size = 3, alpha = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "Максимальное эффективное здоровье по уровням",
+    x = "Уровень персонажа", 
+    y = "Эффективное здоровье"
+  ) +
+  theme(
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 12),
+    panel.grid.major = element_line(color = "gray90"),
+    panel.grid.minor = element_line(color = "gray95"),
+    panel.background = element_rect(fill = "white"),
+    panel.border = element_rect(color = "gray80", fill = NA)
+  ) +
+  scale_x_continuous(breaks = seq(0, 30, by = 5)) +
+  annotate("text", x = 25, y = max(results_p1$max_EHP) * 0.9, 
+           label = paste("Макс. ЭЗ:", round(max(results_p1$max_EHP), 1)),
+           color = "#3366CC", size = 4, fontface = "bold")
+
+# График оптимального распределения очков
+shift_plot <- ggplot(results_p1, aes(x = level, y = best_p_shifted)) +
+  geom_line(color = "#E41A1C", size = 1.2) +
+  geom_point(color = "#E41A1C", size = 3, alpha = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "Оптимальное распределение очков из Силы в Ловкость",
+    x = "Уровень персонажа", 
+    y = "Перекачано очков (p)"
+  ) +
+  theme(
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 12),
+    panel.grid.major = element_line(color = "gray90"),
+    panel.grid.minor = element_line(color = "gray95"),
+    panel.background = element_rect(fill = "white"),
+    panel.border = element_rect(color = "gray80", fill = NA)
+  ) +
+  scale_x_continuous(breaks = seq(0, 30, by = 5)) +
+  annotate("text", x = 5, y = max(results_p1$best_p_shifted) * 0.9, 
+           label = paste("Макс. перекачано:", max(results_p1$best_p_shifted)),
+           color = "#E41A1C", size = 4, fontface = "bold")
+
+# Объединение графиков в одну сетку
+library(gridExtra)
+grid.arrange(ehp_plot, shift_plot, ncol = 1, 
+             top = grid::textGrob("Оптимизация показателей Морфлинга", 
+                                 gp = grid::gpar(fontsize = 16, fontface = "bold")))
+
+# Дополнительный график: соотношение атрибутов при оптимальном распределении
+attr_data <- data.frame(
+  Уровень = results_p1$level,
+  Сила = results_p1$Sil_at_max_EHP,
+  Ловкость = results_p1$Lov_at_max_EHP
+)
+
+# реобразуем данные для графика
+attr_data_long <- reshape2::melt(attr_data, id.vars = "Уровень", 
+                               variable.name = "Атрибут", 
+                               value.name = "Значение")
+
+# дополнительный график
+ggplot(attr_data_long, aes(x = Уровень, y = Значение, color = Атрибут, group = Атрибут)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 2.5, alpha = 0.8) +
+  scale_color_manual(values = c("Сила" = "#4DAF4A", "Ловкость" = "#984EA3")) +
+  labs(
+    title = "Оптимальные значения атрибутов по уровням",
+    x = "Уровень персонажа",
+    y = "Значение атрибута"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 12),
+    legend.position = "bottom",
+    legend.title = element_text(size = 12),
+    legend.text = element_text(size = 10),
+    panel.grid.major = element_line(color = "gray90"),
+    panel.grid.minor = element_line(color = "gray95"),
+    panel.background = element_rect(fill = "white"),
+    panel.border = element_rect(color = "gray80", fill = NA)
+  )
+```
+
+## Часть 2: Оптимизация стратегии боя
+```{r solve-part2}
+# Функция для определения оптимальной стратегии в бою
+solve_part2 <- function(ur_fight, EHP_opponent, Damage_opponent_DPS) {
+  # Расчет базовых значений для текущего уровня
+  Sil_base_fight <- 23 + 3.2 * ur_fight
+  Lov_base_fight <- 24 + 3.9 * ur_fight
+
+  # Определение диапазона возможных значений p
+  p_min <- ceiling(1 - Lov_base_fight)
+  p_max <- floor(Sil_base_fight - 1)
+
+  # Инициализация переменных для поиска оптимального значения
+  min_TTK_morph_kills_opponent <- Inf
+  best_p_for_TTK <- NA 
+  optimal_stats_morph <- NULL
+  TTK_O_kills_M_at_optimal_p <- NA
+
+  # Перебор возможных значений p
+  for (p_val in p_min:p_max) {
+    stats_morph <- calculate_morphling_stats(ur_fight, p_val)
+
+    # Время, за которое Морфлинг убивает оппонента
+    TTK_M_kills_O <- EHP_opponent / stats_morph$DPS
+    
+    # Время, за которое оппонент убивает Морфлинга
+    TTK_O_kills_M <- stats_morph$EHP / Damage_opponent_DPS 
+
+    # Если Морфлинг убивает оппонента быстрее, чем оппонент убивает Морфлинга
+    if (TTK_M_kills_O < TTK_O_kills_M) { 
+        if (TTK_M_kills_O < min_TTK_morph_kills_opponent) {
+            min_TTK_morph_kills_opponent <- TTK_M_kills_O
+            best_p_for_TTK <- p_val
+            optimal_stats_morph <- stats_morph
+            TTK_O_kills_M_at_optimal_p <- TTK_O_kills_M
+        }
+    }
+  }
+
+  return(list(
+    message = paste0("Оптимальная стратегия найдена для уровня ", ur_fight, "."),
+    best_p_shifted = best_p_for_TTK,
+    min_TTK = min_TTK_morph_kills_opponent,
+    stats_at_best_TTK = optimal_stats_morph,
+    TTK_O_kills_M_at_opt = TTK_O_kills_M_at_optimal_p
+  ))
+}
+
+# Параметры боя
+UR_FIGHT_ASSUMED <- 30 
+EHP_OPPONENT_CONST <- 1500
+DAMAGE_OPPONENT_DPS_CONST <- 100
+
+# Запуск расчета оптимальной стратегии
+results_p2 <- solve_part2(ur_fight = UR_FIGHT_ASSUMED, 
+                         EHP_opponent = EHP_OPPONENT_CONST, 
+                         Damage_opponent_DPS = DAMAGE_OPPONENT_DPS_CONST)
+```
+
+## Анализ результатов части 2
+```{r analyze-part2}
+# Создание таблицы с результатами
+  stats_table <- data.frame(
+    Параметр = c("Уровень боя", "Оптимальное p", 
+                 "Сила", "Ловкость", "Броня", 
+                 "Множитель урона", "Здоровье", "Эффективное здоровье",
+                 "Атак в секунду", "Урон атаки", "DPS", 
+                 "Регенерация HP", "Время убийства оппонента", 
+                 "Время, за которое оппонент убьет Морфлинга"),
+    Значение = c(UR_FIGHT_ASSUMED, results_p2$best_p_shifted,
+                 results_p2$stats_at_best_TTK$Sil, 
+                 results_p2$stats_at_best_TTK$Lov,
+                 results_p2$stats_at_best_TTK$B,
+                 results_p2$stats_at_best_TTK$U_Mn,
+                 results_p2$stats_at_best_TTK$T_Zd,
+                 results_p2$stats_at_best_TTK$EHP,
+                 results_p2$stats_at_best_TTK$Atk_per_s,
+                 results_p2$stats_at_best_TTK$U_attack,
+                 results_p2$stats_at_best_TTK$DPS,
+                 results_p2$stats_at_best_TTK$HP_regen,
+                 results_p2$min_TTK,
+                 results_p2$TTK_O_kills_M_at_opt)
+  )
+  
+  # Вывод таблицы
+  kable(stats_table, 
+        col.names = c("Параметр", "Значение"),
+        caption = "Оптимальная стратегия для победы в бою")
+```
+
+# Упражнение 24.2
+
+## Чтение и подготовка исходных данных
+```{r load-target-data}
+
+target_df <- readr::read_csv("target.csv", col_types = cols())
+
+value_df <- readr::read_csv("value.csv", col_types = cols())
+
+p <- nrow(target_df)  # число типов вооружений
+q <- 20               # число целей
+a <- target_df$MaxWeapon  # вектор максимальных доступных вооружений
+alpha_mat <- as.matrix(target_df |> select(starts_with("T")))  # матрица вероятностей непоражения
+alpha_mat <- apply(alpha_mat, 2, as.numeric)
+b <- ifelse(is.na(value_df$MinWeapon), 0, value_df$MinWeapon)  # минимальное число вооружений для цели
+u <- value_df$Value  # вектор боевой ценности целей
+```
+
+## Определение функций для оптимизации
+```{r define-optimization-functions}
+# Целевая функция (минимизация отрицательного ожидаемого урона)
+objective <- function(x) {
+  X <- matrix(x, nrow = p, ncol = q, byrow = TRUE)
+  total_damage <- 0
+  for (j in 1:q) {
+    prod_term <- sum(X[, j] * log(alpha_mat[, j]))
+    damage_j <- u[j] * (1 - exp(prod_term))
+    total_damage <- total_damage + damage_j
+  }
+  return(-total_damage)
+}
+
+# Функция ограничений для оптимизатора
+ineq_constraints <- function(x) {
+  X <- matrix(x, nrow = p, ncol = q, byrow = TRUE)
+  constr <- numeric(p + q)
+  for (i in 1:p) {
+    constr[i] <- sum(X[i, ]) - a[i]  # ограничение на доступное количество оружия типа i
+  }
+  for (j in 1:q) {
+    constr[p + j] <- -sum(X[, j]) + b[j]  # ограничение на минимальное число оружия для цели j
+  }
+  return(constr)
+}
+```
+
+## Начальное приближение и запуск оптимизации
+```{r run-optimization-COBYLA}
+# Создание начального приближения
+x0 <- rep(0, p*q)
+for (j in 1:q) {
+  x0[((1:p)-1)*q + j] <- b[j] / p  # равномерное распределение минимального оружия
+}
+
+# Нижняя граница для переменных
+lb <- rep(0, p*q)
+
+# Запуск оптимизации с использованием алгоритма COBYLA
+res <- nloptr(x0 = x0,
+  eval_f = objective,
+  lb = lb,
+  eval_g_ineq = ineq_constraints,
+  opts = list("algorithm" = "NLOPT_LN_COBYLA",
+  "xtol_rel" = 1e-6))
+
+```
+
+## Анализ результатов оптимизации
+```{r analyze-results}
+# Преобразование вектора решения в матрицу
+X_opt <- matrix(res$solution, nrow = p, ncol = q, byrow = TRUE)
+colnames(X_opt) <- paste0("T", 1:q)
+rownames(X_opt) <- paste0("W", 1:p)
+
+# Расчет суммарных назначений по каждому типу оружия
+weapons_by_type <- rowSums(X_opt)
+total_weapons <- sum(weapons_by_type)
+type_percentages <- round(100 * weapons_by_type / total_weapons, 1)
+
+X_opt_enhanced <- cbind(X_opt, "Всего" = weapons_by_type, "Доля (%)" = type_percentages)
+
+# Создание таблицы
+kable(round(X_opt_enhanced, 2), 
+      caption = "Оптимальное назначение вооружений по целям") |>
+  kableExtra::row_spec(0, bold = TRUE, color = "white", background = "#007bff") |>
+  kableExtra::column_spec(q+2, bold = TRUE, color = "#d63384")
+
+# Расчет максимального ожидаемого урона
+max_damage <- -res$objective
+max_damage
+```
+
+# Упражнение 24.3
+
+## Подготовка параметров для задачи минимальной стоимости
+```{r setup-min-cost-params}
+c_vec <- target_df$Cost
+
+# Вектор требуемых минимумов ожидаемого урона
+d <- rep(0, q)
+names(d) <- value_df$Target
+d[c("T1", "T15", "T19")] <- 0.99  # Требуем 99% поражения для целей T1, T15, T19
+```
+
+## Определение целевой функции и ограничений
+```{r define-cost-optimization-functions}
+# Целевая функция: суммарная стоимость назначения оружия
+objective_cost <- function(x) {
+  X <- matrix(x, nrow = p, ncol = q, byrow = TRUE)
+  total_cost <- sum(c_vec * rowSums(X))
+  return(total_cost)
+}
+
+# Функция ограничений для минимальной ожидаемой вероятности поражения
+ineq_constraints_cost <- function(x) {
+  X <- matrix(x, nrow = p, ncol = q, byrow = TRUE)
+  constr <- numeric(q)
+  for (j in 1:q) {
+    prod_term <- sum(X[, j] * log(alpha_mat[, j]))
+    hit_prob <- 1 - exp(prod_term)
+    constr[j] <- d[j] - hit_prob  # требуем: hit_prob ≥ d[j]
+  }
+  return(constr)
+}
+
+# Создание начального приближения
+x0_cost <- rep(0, p * q)
+target_names <- value_df$Target
+indices <- which(target_names %in% c("T1", "T15", "T19"))
+for (j in indices) {
+  for (i in 1:p) {
+    x0_cost[(i - 1)*q + j] <- 5  # Начальное назначение оружия для целей, требующих поражения
+  }
+}
+lb_cost <- rep(0, p * q)  # Нижняя граница: x_{ij} ≥ 0
+```
+
+## Запуск оптимизации для задачи минимальной стоимости
+```{r run-min-cost-optimization}
+# Оптимизация с использованием алгоритма COBYLA
+res_cost <- nloptr(x0 = x0_cost,
+  eval_f = objective_cost,
+  lb = lb_cost,
+  eval_g_ineq = ineq_constraints_cost,
+  opts = list("algorithm" = "NLOPT_LN_COBYLA",
+  "xtol_rel"  = 1e-8,
+  "maxeval"   = 3000))
+
+```
+
+## Анализ результатов оптимизации минимальной стоимости
+```{r analyze-min-cost-results}
+
+cost_opt <- matrix(res_cost$solution, nrow = p, ncol = q, byrow = TRUE)
+colnames(cost_opt) <- value_df$Target
+rownames(cost_opt) <- paste0("W", 1:p)
+
+# Расчет суммарных назначений и стоимости для каждого типа вооружения
+weapons_totals <- rowSums(cost_opt)
+weapons_costs <- c_vec * weapons_totals
+
+# Создание матрицы с дополнительными столбцами
+cost_opt_enhanced <- cbind(cost_opt, 
+                         "Всего единиц" = weapons_totals,
+                         "Стоимость" = weapons_costs)
+
+# Форматирование числовых значений с округлением до 2 знаков
+formatted_data <- format(round(cost_opt_enhanced, 2), nsmall = 2)
+
+# Применение форматирования и вывод таблицы
+kable(formatted_data, 
+      caption = "Оптимальное назначение оружия (минимальная стоимость)",
+      align = c(rep("c", q), "r", "r"),
+      escape = FALSE) |>
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+                           full_width = TRUE) |>
+  kableExtra::row_spec(0, bold = TRUE, background = "#F0F0F0") |>
+  kableExtra::column_spec(ncol(cost_opt_enhanced), bold = TRUE, color = "#C71585")
+```
+
+Минимальная суммарная стоимость `r res_cost$objective`
+
+# Упражнение 24.4
+
+## Определение параметров и функций стоимости
+```{r setup-purchase-params}
+# Количество деталей для закупки и фиксированные затраты участников
+total_parts <- 239600480
+
+fixed_A <- 3855.84
+fixed_B <- 125804.84
+fixed_C <- 13456.00
+fixed_D <- 6583.98
+fixed_E <- 0 
+
+# Ограничения по максимальным объемам закупок у поставщиков
+bound_A <- 33000000
+bound_B <- 160000000
+bound_C <- 165600000
+bound_D <- 12000000
+bound_E <- 77000000
+
+# Функции расчета стоимости для каждого поставщика
+cost_A <- function(xA) {
+  if(xA <= 0) return(0)
+  return(fixed_A + 0.0061150 * xA)
+}
+
+cost_C <- function(xC) {
+  if(xC <= 0) return(0)
+  return(fixed_C + 0.06219 * xC)
+}
+
+cost_D <- function(xD) {
+  if(xD <= 0) return(0)
+  return(fixed_D + 0.072488 * xD)
+}
+
+cost_E <- function(xE) {
+  if(xE <= 0) return(0)
+  if(xE <= 42000000) {
+    return(fixed_E + 0.070150*xE)
+  } else {
+    return(fixed_E + 0.070150*42000000 + 0.068150*(xE-42000000))
+  }
+}
+
+cost_B <- function(xB) {
+  if(xB < 22000000) return(1e12)  # Штраф за невыполнение минимального заказа
+  if(xB <= 70000000) {
+    return(fixed_B + 0.068099*xB)
+  } else if(xB <= 100000000) {
+    return(fixed_B + 0.068099*70000000 + 0.066049*(xB-70000000))
+  } else if(xB <= 150000000) {
+    return(fixed_B + 0.068099*70000000 + 0.066049*30000000 + 0.064099*(xB-100000000))
+  } else if(xB <= 160000000) {
+    return(fixed_B + 0.068099*70000000 + 0.066049*30000000 + 0.064099*50000000 + 0.062119*(xB-150000000))
+  } else {
+    return(1e12)  # Штраф за превышение максимального заказа
+  }
+}
+```
+
+## Оптимизация распределения закупок
+```{r purchase-optimization}
+# Целевая функция - общая стоимость закупки
+objective_cost <- function(x) {
+  xA <- x[1]; xB <- x[2]; xC <- x[3]; xD <- x[4]; xE <- x[5]
+  cost_total <- cost_A(xA) + cost_B(xB) + cost_C(xC) + cost_D(xD) + cost_E(xE)
+  return(cost_total)
+}
+
+# Ограничения поставок
+eq_constraint <- function(x) {
+  sum(x) - total_parts  # Сумма всех закупок должна равняться требуемому количеству
+}
+lb <- c(0, 0, 0, 0, 0)  # Нижние границы: закупка >= 0
+ub <- c(bound_A, bound_B, bound_C, bound_D, bound_E)  # Верхние границы для каждого поставщика
+
+constraint_function <- function(x) {
+  c(eq_constraint(x))
+}
+
+# Создание начального приближения
+x0 <- c(bound_A, 22000000, bound_C, bound_D, bound_E)
+sum0 <- sum(x0)
+adjustment <- total_parts - sum0
+
+# Корректировка начального приближения для удовлетворения ограничения суммы
+if (adjustment > 0) {
+  x0[1] <- min(x0[1] + adjustment, ub[1])
+} else if (adjustment < 0) {
+  x0[1] <- max(x0[1] + adjustment, lb[1])
+}
+
+# Запуск оптимизации с использованием алгоритма COBYLA
+opts <- list("algorithm" = "NLOPT_LN_COBYLA",
+             "xtol_rel"  = 1e-8,
+             "maxeval"   = 10000)
+
+res <- nloptr(x0 = x0,
+              eval_f = objective_cost,
+              lb = lb, ub = ub,
+              eval_g_eq = constraint_function,
+              opts = opts)
+
+res
+```
+
+## Анализ результатов оптимизации закупок
+```{r analyze-purchase-results}
+# Форматирование результатов
+sol <- res$solution
+
+# Создание таблицы результатов
+sol_df <- data.frame(
+  Поставщик = c("A", "B", "C", "D", "E"),
+  Закуплено = sol,
+  Доля = paste0(round(100 * sol / sum(sol), 2), "%"),
+  Стоимость = c(cost_A(sol[1]), cost_B(sol[2]), cost_C(sol[3]), cost_D(sol[4]), cost_E(sol[5])),
+  stringsAsFactors = FALSE
+)
+
+# Форматирование числовых значений для лучшей читаемости
+sol_df$Закуплено_форм <- format(sol_df$Закуплено, big.mark = " ", scientific = FALSE)
+sol_df$Стоимость_форм <- format(sol_df$Стоимость, big.mark = " ", digits = 2, scientific = FALSE)
+
+
+kable(sol_df[, c("Поставщик", "Закуплено_форм", "Доля", "Стоимость_форм")], 
+      col.names = c("Поставщик", "Количество деталей", "Доля (%)", "Стоимость"), 
+      caption = "Оптимальное распределение закупок по поставщикам",
+      align = c("c", "r", "c", "r"))
+
+total_cost <- objective_cost(sol)
+```
+Общая стоимость закупок `r format(total_cost, big.mark = " ", scientific = FALSE)`
+
+# Упражнение 24.5
+
+## Загрузка и подготовка данных
+```{r load-regression-data}
+data_1 <- read.csv("fit-one.csv")
+
+data_many <- read.csv("fit-many.csv")
+
+# Определение модельных функций
+# Одномерная модель
+model_fun_1 <- function(p, x) {
+  p1 <- p[1]; p2 <- p[2]; p3 <- p[3]
+  atan(p1 * x)*exp(-(x - p2)) + cos(x)^2 * sin(1/(1+exp(-p3*x)))
+}
+
+# Многомерная модель
+model_fun_many <- function(p, x, y) {
+  p1 <- p[1]; p2 <- p[2]
+  sin(p1 * x^2 * y) * exp(p2 * (x - y)^2)
+}
+
+# Функции суммы квадратов ошибок
+sse_1 <- function(p) {
+  pred <- model_fun_1(p, data_1$X)
+  sum((pred - data_1$F)^2)
+}
+
+sse_many <- function(p) {
+  pred <- model_fun_many(p, data_many$X1, data_many$X2)
+  sum((pred - data_many$F)^2)
+}
+
+# Начальные приближения для параметров
+p0_1 <- c(0.5, 1, 1)      # для одномерной модели
+p0_many <- c(1, 0)        # для многомерной модели
+```
+
+## Решение одномерной задачи регрессии
+```{r solve-one-dim-regression}
+# Оптимизация параметров одномерной модели
+fit1 <- optim(p0_1, sse_1)
+fit1$par  
+sse_fit1 <- fit1$value
+
+# Построение графика с данными и аппроксимацией
+x_grid <- seq(min(data_1$X), max(data_1$X), length.out = 300)
+y_pred <- model_fun_1(fit1$par, x_grid)
+
+# Настройка графического окружения
+par(bg = "white", mar = c(4, 4, 3, 1), mgp = c(2.5, 1, 0), las = 1)
+
+# Создание графика
+plot(data_1$X, data_1$F, 
+     pch = 21,              # Тип точек (круги с обводкой)
+     col = "darkblue",      # Цвет обводки точек
+     bg = "lightblue",      # Цвет заливки точек
+     cex = 1.2,             # Размер точек
+     xlab = expression(italic("Значение X")), 
+     ylab = expression(italic("Значение функции f(X)")),
+     main = expression(bold("Одномерная регрессия") ~ ": результаты аппроксимации")) 
+
+lines(x_grid, y_pred, 
+      col = "firebrick",    
+      lwd = 2.5,            
+      lty = 1)           
+
+# легенда
+legend("topright", 
+       legend = c("Экспериментальные точки", "Аппроксимирующая кривая"), 
+       col = c("darkblue", "firebrick", rgb(1, 0, 0, 0.3)), 
+       pt.bg = c("lightblue", NA, NA),
+       pch = c(21, NA, 15), 
+       lty = c(NA, 1, NA),
+       lwd = c(NA, 2.5, NA),
+       pt.cex = c(1.2, NA, 2),
+       bty = "n",          
+       bg = rgb(1, 1, 1, 0.7),
+       box.lwd = 0)
+```
+
+## Решение многомерной задачи регрессии
+```{r solve-multi-dim-regression}
+# Оптимизация параметров многомерной модели
+fit_many <- optim(p0_many, sse_many)
+fit_many$par
+sse_fit_many <- fit_many$value
+
+# Подготовка данных визуализации
+x_seq <- seq(min(data_many$X1), max(data_many$X1), length.out = 50)
+y_seq <- seq(min(data_many$X2), max(data_many$X2), length.out = 50)
+grid <- expand.grid(x = x_seq, y = y_seq)
+z_vec <- model_fun_many(fit_many$par, grid$x, grid$y)
+z_mat <- matrix(z_vec, nrow = length(x_seq), ncol = length(y_seq))
+
+# Построение поверхности
+plot_ly(x = ~x_seq, y = ~y_seq, z = ~z_mat) |>
+  add_surface() |>
+  layout(title = "Многомерная регрессия",
+         scene = list(
+           xaxis = list(title = "X"),
+           yaxis = list(title = "Y"),
+           zaxis = list(title = "f(x,y)")
+         ))
+```
+
+# Упражнение 24.6
+## Загрузка и анализ данных для оценки параметров
+```{r load-mle-data}
+
+data <- read_csv("multivariate.csv")
+head(data, 5)
+N <- nrow(data)
+
+# Оценка параметров методом максимального правдоподобия
+# Оценка вектора средних
+mu_hat <- colMeans(data[, c("X", "Y")])
+
+# Оценка ковариационной матрицы
+# σ1 = Var(X), σ3 = Var(Y), σ2 = Cov(X,Y)
+cov_hat <- cov(data[, c("X", "Y")]) * ((N - 1) / N)
+sigma1 <- cov_hat[1, 1]
+sigma2 <- cov_hat[1, 2]
+sigma3 <- cov_hat[2, 2]
+```
+
+## Визуализация результатов оценки параметров
+```{r visualize-mle-results}
+# Построение сетки для визуализации плотности
+x_seq <- seq(min(data$X), max(data$X), length.out = 100)
+y_seq <- seq(min(data$Y), max(data$Y), length.out = 100)
+grid <- expand.grid(X = x_seq, Y = y_seq)
+
+# Вычисление значений плотности многомерного нормального распределения
+dens <- mvtnorm::dmvnorm(as.matrix(grid), mean = mu_hat, sigma = cov_hat)
+z_matrix <- matrix(dens, nrow = 100, ncol = 100)
+
+# Визуализация данных и контуров плотности
+plot(data$X, data$Y, pch = 20, col = rgb(0.9, 0.3, 0.3, 0.7),
+     xlab = "X", ylab = "Y")
+contour(x_seq, y_seq, z_matrix, add = TRUE, col = "green", lwd = 2)
+```
+
